@@ -1,0 +1,237 @@
+
+     <meta charset="utf-8" emacsmode="-*- markdown -*-"><link rel="stylesheet" href="https://casual-effects.com/markdeep/latest/website.css?">
+
+                          **SEAL**
+
+A rhythm game to play away your end-of-semester sorrows.
+
+
+Overview
+==============================================================
+<b>SEAL</b> is a rhythm game that allows you to create your own note patterns for your friends and play each others' creations!
+
+SEAL allows its users to interact with today’s top tunes in an engaging manner. Players have the ability to choose either to record a new note pattern for a song to store in the game system, or play an already existing recording. Notes fall from the top of the screen, and players will attempt to hit the notes on the beat as they reach the target line. Players get scores according to how accurately they hit the notes on beat, and have the possibility of receiving a "Perfect", "Great", or "OK". At the end of the song, players will be shown their score in comparison to the high score for that recording to encourage continued improvement. 
+
+Can you keep the beat?
+
+<b>Recording:</b>
+
+<center><iframe width="560" height="315" src="https://www.youtube.com/embed/DBcV_m63XGo" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></center>
+
+<b>Playing:</b>
+
+<center><iframe width="560" height="315" src="https://www.youtube.com/embed/ytYVmoZSuyY" frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></center>
+
+
+
+
+Hardware
+==============================================================
+
+<b>Board Setup</b>
+
+<center>
+	<img src="setup.jpg" width="600"/>
+</center>
+
+System Documentation
+==============================================================
+1. <b>Software</b>
+	1. Arduino environment and add-on ESP32 core
+	2. 6.08 Sandbox (Database)
+2. <b>Hardware</b>
+	1. The ESP32 Dev Board
+	2. The TFT Display
+	3. 3 button switches
+	4. Speaker
+	5. SD card and reader
+	6. IMU sensor
+	7. Battery and Power Board
+3. <b>Setup</b>
+	1. Button switches connected to IO pin 5, 16, 19 from left to right.
+	2. Buzzer connected to IO pin 14, in order to utilize a hardware PWM module
+	3. Speaker connected to DAC1 and GND 
+	4. Installing DFRobotDFPlayer library:
+		1. Sketch>Include Library>Manage Libraries
+		2. Search “DFRobotDFPlayer”
+		3. Select the most recent version among the results
+		4. Do NOT update Arduino library 
+4. <b>Databases</b>
+	1. songs.db:  utilized to store notes strings for recordings of the songs on the device. Organized with columns storing name, song_index, and note_list (see detailed table in following section). The database will overwrite recordings for the same song by the same user. GET method on songs_db can be used to retrieve:
+		1. Names of all songs in the database (if given song_index == -1)
+		2. Names of all recordings of the same song in the database (if given a valid song_index >= 0)
+		3. The notes list for a specific recording of a song in the database (if given a valid song_index >= 0 and a valid name)
+	2. scores.db: utilized to store the high scores of each recording in the database. Organized with columns storing user, song_index, high_score, and song_author (see detailed table in following section). The database will overwrite the high score for a specific recording for a particular song if a new high score is achieved. GET method on scores_db can be used to retrieve:
+		1. A high score (if given a valid song_index and song_author)
+
+
+System Block Diagram
+==============================================================
+Our system relies on the interaction between the ESP32 and two databases: scores.db and songs.db
+<center>
+	<img src="systemdiagram.png" width="600"/>
+</center>
+
+<b>Songs.db</b>
+
+| name (text) | song_index (int) | note_list (text) |
+|-------------|:----------------:|-----------------:|
+|     ‘C’     |         0        |'-14:1,386:1,866:1,1346:1,1666:1,2226:1,'|
+|	 'Andy'	  |		    1		 |'-494:1,-94:2,386:2,786:0,1106:0,1426:2,1746:1,'|
+
+<b>Scores.db</b>
+
+| user (text) | song_index (int) | high_score (int) | song_author(text) |
+|-------------|:----------------:|-----------------:|------------------:|
+|     ‘C’     |         0        |		  70	    |		'C'			|
+|	  'C'	  |		    2		 |		  41		|		'Andy'		|
+
+State Machine Diagram
+==============================================================
+<center>
+	<img src="statediagram.png" width="600"/>
+</center>
+
+Design Challenges
+==============================================================
+1. <b>How to record notes for songs:</b> Initially, we had planned to listen to all the songs we would want to incorporate into our game, and generate strings for the notes by physically typing up the notes. We would then store these notes in the database for future usage in the play mode. We soon realized the impracticality of this idea, as the number of notes for even a short 30 second music clip could reach the hundreds. Furthermore, determining an exact millisecond for this notes was a difficult, and realistically quite impossible, task, as the beats in a song do not necessarily fall on a nice round millisecond value. This also didn’t easily allow for multiple note string recordings for the same song. Thus, we devised a new plan, in which we implemented a record mode into our device. Now, through pressing the buttons at the time in which we would want notes to be pressed in the play mode of our game, our code could generate a notes string for us to be stored in the database. Through this solution we not only have a much easier way of making notes strings, but also provide an extra feature for all of our game users so they too can make these new notes strings without having to know how the strings are made or what format they are in. 
+
+2. <b>Syncing music and falling notes on screen:</b> The DFPlayer and the methods that record the notes string and play the notes string had to be synced up so that the time recorded for each note lined up to the time that it should hit based on the beat of the music. The DFPlayer takes some time to start up and start playing music each time the DFPlayer play() method is called. Thus, we inserted a transition state between the selection states for record and play and their respective following record or play state. This transition state inserts a delay of 1000 ms, which is enough time for the music to begin before we transition to the record of play screens. We didn’t want to allow notes to be recorded before the music was ready, so we created a timer variable that would be set to millis() right as the system transitioned into the RECORD or PLAY states. 
+
+3. <b>Sync notes in record and play mode:</b> We additionally had to sync the notes times between the record and the play modes. Since notes are recorded at the time the button is pressed on the beat, but in play mode must fall from the top of the screen and hit the bottom line on the beat, we had to include an offset in the times that we were recording and storing for each note. We did this calculation by taking the height of our game screen (130 px), dividing it by the height of a note (5 px), and multiplying it by the time between method calls to change the location of the note (40 ms). This told us to include and offset of 1040 ms for each note, and this synced up our record and play mode. 
+
+Parts List
+==============================================================
+1. <b> 6.08 Base Kit (x2)</b> 
+  - Already Owned
+2. <b> DFPlayer Mini MP3 Player (x2)</b>
+  - Vendor: Amazon
+  - Model Number: LK01
+  - PPU: $5.52
+3. <b> Kingston 32GB micro-SD card (x2)</b>
+  - Vendor: Amazon (add-on item)
+  - Model Number: SDCS/32GB
+  - PPU: $4.40
+4. <b> 4-Ohm 3-Watt Generic-Speaker (x2)</b>
+  - Joe's Inventory
+5. <b> Generic buzzer (x2)</b>
+  - Joe's Inventory
+
+Code Description
+==============================================================
+1. <b>Main</b>
+	- void setup()
+		- This function consists of the initialization for much of the system. It contains the code to connect to the WiFi, initialization of the buttons, ESP, LCD, IMU, MP3 player, buzzer, and timers. 
+	- void loop()
+		- This function consists of the main FSM for the system, which controls the screen state. The system starts out (as set in setup()) in the NAME state, where the user is prompted to enter their player name, and cycles through the various screen/play states of the game - including RECORD, PLAY, and SCORE. It also incorporates “transition” states which help with syncing the display with the mp3 player and server requests.
+	- void parseNotesToArrays(char *recordedString, int *times, int* notes) 
+		- This function takes in the recorded notes string retrieved from the database and parses the information into two int arrays: times, which is an array of the millis time offset from the starting millis time of the play state to start dropping a note on the screen, and notes, which is an array of the notes in the note string (0, 1, or 2 corresponding to which button the note is referring to)
+	- void get_angle(float* x, float* y)
+		- This function, very similar to the function used in the wikipedia lookup design project, takes values from the IMU and returns the angle of tilt of the board. 
+2. <b>Note class</b>
+	- The Note class provides a representation of a note object, and contains all the methods needed to control the position and color of the note according to the actions in the play state. The methods of the class create a Note object, and then move the note with the moveNote(TFT_eSPI* tft_to_use) function on every loop cycle in the play state. The setColor() method is used to change the color of the note so that it disappears once it has been correctly pressed by the user
+3. <b>Button class</b>
+	- The Button object’s main objective is to filter out any debouncing from low-quality buttons. There are four possible states a Button object can be in that are represented by integers:
+		- Unpressed (0) : When the button is not being pressed
+		- Just pressed (1) : When the button has just changed from being unpressed to pressed
+		- Valid-press (2) : the button is pressed within a valid time-period
+		- Hold (3) : the button has been held for longer than the specified valid time-period
+		- Holds are NOT counted as being valid
+4. <b>NameGetter class</b>
+	- This class is used to collect the user’s name in the very beginning of the game. It uses data from the IMU (get_angle()) to scroll through letters & numbers and reports back the submitted string, which is stored globally. 
+5. <b>button(One/Two/Three)FSM</b>
+	- Each of these functions are FSM reporters for the three buttons. The readings are based off of the instances of the Button class, and each reporter returns a 1 if the button registers a pressed state (based off of the Button class), and 0 if the button is in an unpressed state. These FSMs also properly handle the different colors of the record state - a default color of cyan for the record ellipses, and when in a pressed state, turns green and after a period of 300ms, returns to cyan.
+6. <b>combinationReporterFSM</b>
+	- This function is used for record mode. This function processes the three FSM reporters’ results, assigns a corresponding combo based on the results, and appends to a note_list string the following: the time that the combination was registered, as well as the combination number. 
+7. <b>displayCode</b>
+	- display_name_header(), display_name(), display_home(), display_record(), display_selection(), displayRecordSelect(), display_record_confirmation(int songIndex, char* new_str), display_play(), and display_scores(char *globalUserAndScore) are all set up code for the LED screen
+	- display_notes() not only sets up the LED screen display, but also creates a Note object for each note in the notes list. It adds all these notes objects to a Note list called allNotes, which will allow other methods to move the position of the notes
+8. <b>displaySong</b>
+	- This function renders the selection menu for play select on the TFT screen.
+9. <b>displayUser</b>
+	- This function displays, on the TFT screen, all the users who have recorded a particular song (which therefore uniquely identifies each recording).
+10. <b>getAllUsersForSpecificSongIndex</b>
+	- This function performs a GET request to the songs database, with a song index as a query parameter. The server request handler then performs a SELECT command for all users who have recorded the song denoted by that song index, and returns it as a server response.
+11. <b>getAllSongIndices()</b>
+	- This function performs a GET request to retrieve all the song indices that are stored in the songs database. At a high-level, this is how we retrieve all the song indices that are used in order to populate the record-select and play-select selection menus.
+12. <b>playAndScoreFSMs</b>
+	- On a high level the functions here take care of the play state and the score keeping. More details in scoreReporterFSM. 
+13. <b>scoreReporterFSM(uint8_t button1, uint8_t button2, uint8_t button3)</b>
+	- This function is used for play mode. This function processes the three FSM button reporters’ results, and validates the button press results against notes that should be within screen range based on the time. It sets off the buzzer on incorrect presses. On correct presses it evaluates the accuracy based on the timing of the press against the expected timing of the note, and assigns one of three score levels (perfect, great, ok) to the note. Player score increments according to the accuracy. 
+14. <b>postScore</b>
+	- After playing a song, this function makes a POST request to scores database, posting the player name, the song index of the song just played, the name of the user who originally recorded the song (song author), and the high score. 
+15. <b>getGlobalHighScore</b>
+	- This function retrieves the global high score and scorer of the song just played (denote by song index and the song author), which is displayed in the scores screen.
+16. <b>postNoteString</b>
+	- This function posts the recorded note string, name of the person who recorded that note sequence, and the song index of the song
+17. <b>getNoteString</b>
+	- This function retrieves the recorded note string from the songs database, for a particular user (who recorded the note list) and song index.
+18. <b>postNotesStringToDB</b>
+	- This function posts the notes string from record mode to the database under a specific song and user name.
+19. <b>resetVariables</b>
+	- Clears indexing and counter variables, resetting stored values for a new record/play state. 
+20. <b>populateRetrievedIndices</b>
+	- This function populates the retrievedSongIndices array, an array that contains all the songIndices that are present inside the songs database.
+21. <b>populateRetrievedUsers</b>
+	- This function populates the retrievedNames array, an array that contains all the song authors who recorded a particular song (same song index).
+22. <b>support_functions</b>
+	- These methods are used to send POST and GET requests to the server. 
+
+
+Energy Management
+==============================================================
+
+We measured the current drawn by the system from a consistent power source at various states to calculate the lifetime of SEAL. 
+
+<p> 
+  <b> IDLE/SCROLLING:</b> 100mA<br>
+  <b> GET/POST:</b> 170 mA<br>
+  <b> RECORD/PLAY:</b><br>
+
+  - 100 mA 66% of the time
+  - 170 mA 33% of the time
+</p>
+
+In one minute, the time spent in each state is as such:<br>
+
+  - <b>IDLE/SCROLLING:</b> 27 seconds
+  - <b>GET/POST:</b> 3 seconds
+  - <b>RECORD/PLAY:</b> 30 seconds
+
+Using these measurements, the average current comes out to be:
+
+$I_{average} = \frac{100 \textrm{ mA} * 27 \textrm{ s} + 170 \textrm{ mA} * 3 \textrm{ s} + (100 * \frac{2}{3} + 170 * \frac{1}{3}) \textrm{ mA} * 30 \textrm{ s}}{60 \textrm{ s}} = 115 \frac{1}{6} \textrm{ mA}$
+
+To calcuate the lifetime of the system, we will assume that the battery's capacity is <strong>1500mAH</strong>.
+
+The expected lifetime of the system while it is being played is:
+
+$T_{expected} = \frac{1500 \textrm{ mAH}}{115 \frac{1}{6} \textrm{ mA}} \approx 12.0246 \textrm{ H}$
+
+The expected life-time, based on current calculations in different states, is not bad at all. One way we extended the lifetime of the system was to not use the MP3-player's amplifier; the speaker is connected to <em>DAC_1</em> and <em>GND</em> (ground), which don't utilize the amplifier, instead of <em>SPK_1</em> and <em>SPK_2</em>, which do. 
+
+Another battery-saving option that is fairly simple to implement is to turn the WiFi module off when not needed. The system only needs to be connected to a network when:<br>
+
+  1. GET requesting for the list of songs and scores
+  2. POSTing a game's score (and receiving a potentially-updated high score)
+
+Implementing this change should increase the battery life of the system by a noticeable amount. Based on calculations, the WiFi module would only have to be on for ~3 seconds for every minute 
+Team
+==============================================================
+
+- Lillian Bu
+- Suzie Byun
+- Eric Hong
+- Andy Kuang
+
+About
+==============================================================
+
+The faux-logo icon in the banner is from
+[Freepik](https://www.freepik.com)
+and licensed under [CC 3.0 BY](http://creativecommons.org/licenses/by/3.0).
+Replace `website-banner.png` in the CSS file to replace it with your own.
+
+
+<style class="fallback">body{visibility:hidden}</style><script>markdeepOptions={tocStyle:'long'};</script>
+<!-- Markdeep: --><script src="https://casual-effects.com/markdeep/latest/markdeep.min.js?" charset="utf-8"></script>
